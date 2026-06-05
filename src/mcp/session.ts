@@ -124,14 +124,19 @@ function fileUriToPath(uri: string): string {
   }
 }
 
-/** First usable filesystem path from a `roots/list` result, or null. */
-function firstRootPath(result: unknown): string | null {
-  if (!result || typeof result !== 'object') return null;
+/** All usable filesystem paths from a `roots/list` result. */
+function allRootPaths(result: unknown): string[] {
+  if (!result || typeof result !== 'object') return [];
   const roots = (result as { roots?: unknown }).roots;
-  if (!Array.isArray(roots) || roots.length === 0) return null;
-  const first = roots[0] as { uri?: unknown };
-  if (typeof first?.uri !== 'string') return null;
-  return fileUriToPath(first.uri);
+  if (!Array.isArray(roots)) return [];
+  const paths: string[] = [];
+  for (const root of roots) {
+    const uri = (root as { uri?: unknown })?.uri;
+    if (typeof uri === 'string') {
+      paths.push(fileUriToPath(uri));
+    }
+  }
+  return paths;
 }
 
 export interface MCPSessionOptions {
@@ -295,6 +300,17 @@ export class MCPSession {
     // that session gets the no-default-project variant too.
     const indexed = resolveServerRoot(explicitPath ?? process.cwd()).root !== null;
 
+    // Pass all workspace folder paths to the ToolHandler for multi-project discovery.
+    if (params?.workspaceFolders && params.workspaceFolders.length > 0) {
+      const allPaths = params.workspaceFolders
+        .map(f => f.uri)
+        .filter((uri): uri is string => typeof uri === 'string')
+        .map(fileUriToPath);
+      if (allPaths.length > 0) {
+        this.engine.getToolHandler().setWorkspaceRoots(allPaths);
+      }
+    }
+
     // Respond to the handshake BEFORE doing any heavy init — see issue #172.
     this.transport.sendResult(request.id, {
       protocolVersion: PROTOCOL_VERSION,
@@ -419,9 +435,11 @@ export class MCPSession {
     let target = process.cwd();
     try {
       const result = await this.transport.request('roots/list', undefined, ROOTS_LIST_TIMEOUT_MS);
-      const rootPath = firstRootPath(result);
-      if (rootPath) {
-        target = rootPath;
+      const roots = allRootPaths(result);
+      if (roots.length > 0) {
+        target = roots[0]!;
+        // Store ALL roots for multi-project discovery
+        this.engine.getToolHandler().setWorkspaceRoots(roots);
       } else {
         process.stderr.write('[CodeGraph MCP] Client returned no workspace roots; falling back to process cwd.\n');
       }
