@@ -82,6 +82,9 @@ export class NotIndexedError extends Error {}
  */
 export class PathRefusalError extends Error {}
 import { resolve as resolvePath } from 'path';
+import {
+  MultiSearchState,
+} from './project-registry';
 
 /** Maximum output length to prevent context bloat (characters) */
 const MAX_OUTPUT_LENGTH = 15000;
@@ -1225,6 +1228,45 @@ export const tools: ToolDefinition[] = [
     },
     annotations: READ_ONLY_ANNOTATIONS,
   },
+  {
+    name: 'codegraph_multi_search',
+    description: 'Search for a symbol across multiple indexed projects in one call. Returns results grouped by project. Use this instead of calling codegraph_search repeatedly with different projectPath values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Symbol name or partial name to search for across projects (e.g., "auth", "signIn")',
+        },
+        projects: {
+          type: 'array',
+          items: { type: 'string', description: 'Project name or absolute path' },
+          description: 'Project names or absolute paths to search. Omit or pass ["all"] to search all discovered projects. A name matches the directory basename (e.g. "api-server" matches /repos/api-server). Pass an absolute path to target a project not in the registry.',
+        },
+        kind: {
+          type: 'string',
+          description: 'Filter by node kind',
+          enum: ['function', 'method', 'class', 'interface', 'type', 'variable', 'route', 'component'],
+        },
+        limitPerProject: {
+          type: 'number',
+          description: 'Maximum results per project (default: 5, max: 20)',
+          default: 5,
+        },
+        refreshDiscovery: {
+          type: 'boolean',
+          description: 'Re-scan filesystem for projects instead of using cached registry (default: false)',
+          default: false,
+        },
+        scanDepth: {
+          type: 'number',
+          description: 'Directory scan depth when refreshing discovery (1-5, default: 3). Only used with refreshDiscovery=true.',
+          default: 3,
+        },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 /**
@@ -1318,6 +1360,9 @@ export class ToolHandler {
   // main loop stays free for the MCP transport under concurrent load. Null in
   // direct/in-process mode (one client, no concurrency to parallelize).
   private queryPool: QueryPool | null = null;
+
+  // Multi-search state (lazily created when workspace roots are provided).
+  private multiSearchState: MultiSearchState | null = null;
 
   constructor(private cg: CodeGraph | null) {}
 
@@ -1620,6 +1665,19 @@ export class ToolHandler {
     }
     this.projectCache.clear();
     this.worktreeMismatchCache.clear();
+    this.multiSearchState?.reset();
+    this.multiSearchState = null;
+  }
+
+  /**
+   * Set workspace roots from MCP client (roots/list + workspaceFolders).
+   * Delegates to MultiSearchState, creating it on first use.
+   */
+  setWorkspaceRoots(roots: string[]): void {
+    if (!this.multiSearchState) {
+      this.multiSearchState = new MultiSearchState();
+    }
+    this.multiSearchState.setWorkspaceRoots(roots);
   }
 
   /**
@@ -1950,6 +2008,13 @@ export class ToolHandler {
       // auto-banner wrapper to avoid duplicating its own pending-files section.
       if (toolName === 'codegraph_status') {
         return await this.handleStatus(args);
+      }
+
+      // codegraph_multi_search searches across all indexed projects — runs on
+      // main thread because it opens transient connections to other projects.
+      if (toolName === 'codegraph_multi_search') {
+        return await this.handleMultiSearchDelegated(args);
+      }
       }
 
       // Read tools: off-load the CPU-heavy dispatch to the worker pool when one
@@ -6902,5 +6967,22 @@ export class ToolHandler {
       content: [{ type: 'text', text: `Error: ${message}` }],
       isError: true,
     };
+  }
+
+  /**
+   * Delegate codegraph_multi_search to MultiSearchState.
+   * If no workspace roots were provided, returns a helpful error.
+   */
+  private async handleMultiSearchDelegated(args: Record<string, unknown>): Promise<ToolResult> {
+    if (!this.multiSearchState) {
+      return this.errorResult(
+        'No workspace roots configured. codegraph_multi_search requires workspace folders to discover projects.'
+      );
+    }
+    return this.multiSearchState.execute(
+      args,
+      (projectPath: string) => this.getCodeGraph(projectPath),
+      this.defaultProjectHint,
+    );
   }
 }
