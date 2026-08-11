@@ -1634,6 +1634,7 @@ interface PropertySchema {
   description: string;
   enum?: string[];
   default?: unknown;
+  items?: { type: string; description?: string };
 }
 
 /**
@@ -1908,6 +1909,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'codegraph_multi_search',
     description: 'Search for a symbol across multiple indexed projects in one call. Returns results grouped by project. Use this instead of calling codegraph_search repeatedly with different projectPath values.',
+    annotations: READ_ONLY_ANNOTATIONS,
     inputSchema: {
       type: 'object',
       properties: {
@@ -3194,7 +3196,6 @@ export class ToolHandler {
       // main thread because it opens transient connections to other projects.
       if (toolName === 'codegraph_multi_search') {
         return await this.handleMultiSearchDelegated(args);
-      }
       }
 
       // Read tools: off-load the CPU-heavy dispatch to the worker pool when one
@@ -9252,9 +9253,14 @@ export class ToolHandler {
    */
   private async handleMultiSearchDelegated(args: Record<string, unknown>): Promise<ToolResult> {
     if (!this.multiSearchState) {
-      return this.errorResult(
-        'No workspace roots configured. codegraph_multi_search requires workspace folders to discover projects.'
-      );
+      if (this.defaultProjectHint) {
+        this.multiSearchState = new MultiSearchState();
+        this.multiSearchState.setWorkspaceRoots([this.defaultProjectHint]);
+      } else {
+        return this.errorResult(
+          'No workspace roots configured. codegraph_multi_search requires workspace folders to discover projects.'
+        );
+      }
     }
     return this.multiSearchState.execute(
       args,

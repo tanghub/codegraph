@@ -331,11 +331,18 @@ describe('ToolHandler codegraph_multi_search', () => {
     delete process.env.CODEGRAPH_MCP_TOOLS;
   });
 
-  it('appears in the full tool surface', () => {
+  it('is not in the default tool surface but appears when allowlisted', () => {
+    // The default tool surface was pared down to codegraph_explore alone (#818,
+    // f82a662), so multi_search is not exposed by default — but it must remain
+    // reachable when an operator opts in via CODEGRAPH_MCP_TOOLS.
     delete process.env.CODEGRAPH_MCP_TOOLS;
     const handler = new ToolHandler(null);
-    const names = handler.getTools().map(t => t.name);
-    expect(names).toContain('codegraph_multi_search');
+    expect(handler.getTools().map(t => t.name)).not.toContain('codegraph_multi_search');
+
+    process.env.CODEGRAPH_MCP_TOOLS = 'multi_search';
+    const allowlisted = new ToolHandler(null).getTools().map(t => t.name);
+    expect(allowlisted).toContain('codegraph_multi_search');
+    delete process.env.CODEGRAPH_MCP_TOOLS;
   });
 
   it('validates query is a non-empty string', async () => {

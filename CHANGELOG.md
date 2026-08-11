@@ -21,6 +21,7 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - When the CodeGraph server's catch-up sync on a large project is stopped because the tool calls it is serving keep its write-ahead log from shrinking, it now waits before trying again, a little longer each time, instead of starting over every second while you keep working. Thanks @kiliman for the report. (#3273)
 - A CodeGraph MCP server started in a folder with no index no longer starts its separate hang-watchdog process until the session first calls a tool or opens a project, so sessions that only list the tools, as many hosts open them, use less memory. Thanks @AiurArtanis for the report and @johnhldiver-beep for #3257. (#3250)
 - A CodeGraph server whose project folder is deleted, like a removed git worktree, now exits within about half a minute, closing its file watcher and dropping its entry from `codegraph list`, instead of running until its last session ends and it times out. On Windows it also stops keeping that folder's index files from being deleted. Thanks @deniskern for the report and @johnhldiver-beep for #3259. (#3245)
+- Cross-project search (`codegraph_multi_search`) now works when the server was launched with a single default project instead of a workspace with folders. It also advertises itself as read-only like the other tools, so clients that gate on that (e.g. Cursor's Ask mode) no longer block it, and servers that expose it no longer fail to start.
 
 ## [1.6.3] - 2026-11-17
 
