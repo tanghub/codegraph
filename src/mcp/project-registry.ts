@@ -414,6 +414,13 @@ export class MultiSearchState {
           const lines = ranked.map(r =>
             `  - ${r.node.name} (${r.node.kind}) — ${r.node.filePath}:${r.node.startLine}`
           );
+          // Provide an explore hint so the agent can deep-dive without manually
+          // constructing the call — the first result's name is a good default query.
+          const firstName = ranked[0]!.node.name;
+          const escapedQuery = firstName.includes(' ') ? `"${firstName}"` : firstName;
+          lines.push(
+            `\n  → codegraph_explore(query: ${escapedQuery}, projectPath: "${entry.rootPath}")`
+          );
           sections.push(`### ${entry.name} (${entry.rootPath})\n${lines.join('\n')}`);
         }
       } catch (err) {

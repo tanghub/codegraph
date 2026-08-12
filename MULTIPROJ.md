@@ -50,7 +50,7 @@ CodeGraph 支持在一个 MCP 会话中同时查询**多个已索引项目**。�
 |---|---|---|
 | `query` **(必填)** | string | 要搜索的符号名或部分名，如 `"auth"`、`"signIn"` |
 | `projects` | string[] | 项目名（目录 basename，不区分大小写）或绝对路径。省略或传 `["all"]` 表示搜索全部已发现项目。传绝对路径可定位不在 registry 中的项目 |
-| `kind` | string | 按节点类型过滤：`function` / `method` / `class` / `interface` / `type` / `variable` / `route` / `component` |
+| `kind` | string | 按节点类型过滤：`function` / `method` / `class` / `struct` / `interface` / `trait` / `protocol` / `variable` / `constant` / `property` / `field` / `enum` / `enum_member` / `type_alias` / `union` / `namespace` / `route` / `component` / `module` |
 | `limitPerProject` | number | 每个项目最多返回结果数（默认 5，最大 20） |
 | `refreshDiscovery` | boolean | 为 `true` 时重新扫描文件系统，忽略磁盘缓存（默认 false） |
 | `scanDepth` | number | 仅在 `refreshDiscovery=true` 时的扫描深度（1–5，默认 3） |
@@ -68,14 +68,25 @@ CodeGraph 支持在一个 MCP 会话中同时查询**多个已索引项目**。�
 - 指定多个项目时去重（按 `rootPath`）。
 - 每个项目各自获得独立的 `CodeGraph` 实例（通过 `getCodeGraph` 打开并缓存），项目间彼此隔离。
 - 任一项目查询失败不影响其他项目——失败项标记 `⚠ Error`，其余照常返回。
-- 输出末尾提示用 `codegraph_explore` + `projectPath` 在特定项目内做更深的查询。
+- 每个有结果的项目末尾会附带一行 `→ codegraph_explore(query: ..., projectPath: "...")` 提示，agent 可直接复制调用来深入查询该项目，无需手动构造参数。
 
 ### 使用示例
 
 ```
 codegraph_multi_search(query: "auth", projects: ["api-server", "web-app"])
 codegraph_multi_search(query: "signIn", projects: ["all"], limitPerProject: 10)
-codegraph_multi_search(query: "auth", refreshDiscovery: true, scanDepth: 4)
+codegraph_multi_search(query: "auth", kind: "class", projects: ["all"])
+codegraph_multi_search(query: "UserService", kind: "trait", projects: ["auth-service"])
+```
+
+### 典型工作流：跨项目搜索 → 深入查询
+
+```
+1. codegraph_multi_search(query: "UserService")
+   → 结果显示 UserService 在 api-server 和 web-app 中都有定义
+
+2. codegraph_explore(query: "UserService", projectPath: "/repos/api-server")
+   → 返回 api-server 中 UserService 的完整源码、调用链和影响范围
 ```
 
 ## 四、跨项目定向查询（`projectPath`）
@@ -85,6 +96,8 @@ codegraph_multi_search(query: "auth", refreshDiscovery: true, scanDepth: 4)
 - 传入后，服务器为该路径打开/复用对应的 `CodeGraph` 实例（按绝对路径缓存），并解析该路径最近的 `.codegraph/` 根。
 - 不传时，回落到服务器启动时的默认项目。
 - 当服务器没有默认项目（例如在一个自身没有 `.codegraph/` 的 monorepo 根目录启动，或网关服务器启动在任意目录），且 `projectPath` 为必填时，工具 schema 会把它标记为 **`required`**（`withRequiredProjectPath`），强制每次调用显式携带。
+
+`codegraph_explore` 的工具描述中明确提示：从 `codegraph_multi_search` 结果跟进时，应传入结果中显示的 `projectPath` 以查询正确的项目。
 
 ## 五、默认项目回退
 
@@ -115,7 +128,32 @@ CODEGRAPH_MCP_TOOLS=explore,multi_search
 | `src/mcp/server-instructions.ts` | MCP `initialize` 返回的 agent 指引，含跨项目使用说明 |
 | `__tests__/mcp-multi-search.test.ts` | 多项目搜索与 project-registry 单测 |
 
-## 八、环境变量速查
+## 八、构建与本地安装
+
+从源码重新构建并安装到本地（开发调试用）：
+
+```bash
+cd /Users/tang/devsrc/tang-git-repo/codegraph
+
+# 1. 构建
+npm run build          # tsc 编译 + 复制 schema.sql / *.wasm 到 dist/
+
+# 2. 全局 link（使 codegraph 命令指向本地 dist/）
+npm link
+
+# 3. 验证
+codegraph --version
+which codegraph        # 应指向项目 dist/bin/codegraph.js
+```
+
+每次修改源码后，重新执行 `npm run build` 即可生效，无需重复 `npm link`。
+
+若只想在**某个具体项目**中使用本地版本，进入目标项目后：
+```bash
+npm install /Users/tang/devsrc/tang-git-repo/codegraph
+```
+
+## 九、环境变量速查
 
 | 变量 | 作用 |
 |---|---|

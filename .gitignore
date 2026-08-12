@@ -87,3 +87,4 @@ target-linux/
 # once committed three of these, 7.9 MB, into a feature branch).
 *.bundle
 *.gitbundle
+.mcp.json
