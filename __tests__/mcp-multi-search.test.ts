@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { DatabaseSync } = require('node:sqlite');
 import {
   scanForProjects,
   loadRegistry,
@@ -42,11 +44,17 @@ describe('project-registry', () => {
     try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
   });
 
-  /** Create a fake .codegraph/codegraph.db in the given directory. */
+  /**
+   * Create a fake .codegraph/codegraph.db in the given directory. Since 1.6.x
+   * `isInitialized()` probes the file with SQLite and requires the codegraph
+   * schema (a `nodes` table) — an empty file no longer counts.
+   */
   function createFakeProject(dir: string): void {
     const codegraphDir = path.join(dir, '.codegraph');
     fs.mkdirSync(codegraphDir, { recursive: true });
-    fs.writeFileSync(path.join(codegraphDir, 'codegraph.db'), '');
+    const db = new DatabaseSync(path.join(codegraphDir, 'codegraph.db'));
+    db.exec('CREATE TABLE nodes(id TEXT PRIMARY KEY);');
+    db.close();
   }
 
   describe('scanForProjects', () => {

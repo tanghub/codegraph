@@ -3174,6 +3174,15 @@ export class ToolHandler {
         if (typeof check === 'object' && check !== undefined) return check;
       }
 
+      // codegraph_multi_search searches across all indexed projects — runs on
+      // main thread because it opens transient connections to other projects.
+      // Dispatch must stay ABOVE the default-project load below: a session at
+      // an un-indexed root (e.g. a server launched with a single default
+      // project, or none) must still be able to cross-project search.
+      if (toolName === 'codegraph_multi_search') {
+        return await this.handleMultiSearchDelegated(args);
+      }
+
       const project = await this.getCodeGraph(args.projectPath as string | undefined);
       await this.awaitIndexRecovery(project);
       // Recover a watcher disabled by prolonged lock contention on the next call.
@@ -3195,12 +3204,6 @@ export class ToolHandler {
           args.projectPath as string | undefined,
           indexVersionWarnings,
         );
-      }
-
-      // codegraph_multi_search searches across all indexed projects — runs on
-      // main thread because it opens transient connections to other projects.
-      if (toolName === 'codegraph_multi_search') {
-        return await this.handleMultiSearchDelegated(args);
       }
 
       // Read tools: off-load the CPU-heavy dispatch to the worker pool when one
